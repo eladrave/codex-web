@@ -75,6 +75,7 @@ jobs:
 
       - name: Build compatibility candidate
         if: steps.versions.outputs.changed == 'true'
+        timeout-minutes: 60
         env:
           APP_VERSION: ${{ steps.versions.outputs.app_version }}
           CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
@@ -86,13 +87,40 @@ jobs:
           image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REPOSITORY}/codex-web:candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           printf 'Building desktop %s with CLI %s as %s\n' \
             "$APP_VERSION" "$CLI_VERSION" "$image"
-          gcloud builds submit \
+          build_id="$(gcloud builds submit \
             --no-source \
             --config=cloudbuild.github.yaml \
             --substitutions="_IMAGE=${image},_SOURCE_REPOSITORY=https://github.com/${GITHUB_REPOSITORY}.git,_SOURCE_REVISION=${SOURCE_REVISION}" \
             --region="$GCP_REGION" \
             --project="$GCP_PROJECT_ID" \
-            --quiet
+            --async \
+            --format='value(id)' \
+            --quiet)"
+          [[ -n "$build_id" ]]
+          printf 'Cloud Build %s submitted for %s\n' "$build_id" "$image"
+
+          while true; do
+            status="$(gcloud builds describe "$build_id" \
+              --region="$GCP_REGION" \
+              --project="$GCP_PROJECT_ID" \
+              --format='value(status)')"
+            printf 'Cloud Build %s status: %s\n' "$build_id" "$status"
+            case "$status" in
+              SUCCESS)
+                break
+                ;;
+              PENDING|QUEUED|WORKING)
+                sleep 10
+                ;;
+              *)
+                gcloud builds describe "$build_id" \
+                  --region="$GCP_REGION" \
+                  --project="$GCP_PROJECT_ID" \
+                  --format='yaml(status,failureInfo,logUrl)'
+                exit 1
+                ;;
+            esac
+          done
 
       - name: Open or update the release PR
         if: steps.versions.outputs.changed == 'true'

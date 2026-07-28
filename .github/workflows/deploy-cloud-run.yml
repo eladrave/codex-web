@@ -36,6 +36,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
 
       - name: Build the production image with Cloud Build
+        timeout-minutes: 60
         env:
           GCP_ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
@@ -43,13 +44,40 @@ jobs:
         run: |
           image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REPOSITORY}/codex-web:${GITHUB_SHA::12}"
           printf 'IMAGE=%s\n' "$image" >> "$GITHUB_ENV"
-          gcloud builds submit \
+          build_id="$(gcloud builds submit \
             --no-source \
             --config=cloudbuild.github.yaml \
             --substitutions="_IMAGE=${image},_SOURCE_REPOSITORY=https://github.com/${GITHUB_REPOSITORY}.git,_SOURCE_REVISION=${GITHUB_SHA}" \
             --region="$GCP_REGION" \
             --project="$GCP_PROJECT_ID" \
-            --quiet
+            --async \
+            --format='value(id)' \
+            --quiet)"
+          [[ -n "$build_id" ]]
+          printf 'Cloud Build %s submitted for %s\n' "$build_id" "$image"
+
+          while true; do
+            status="$(gcloud builds describe "$build_id" \
+              --region="$GCP_REGION" \
+              --project="$GCP_PROJECT_ID" \
+              --format='value(status)')"
+            printf 'Cloud Build %s status: %s\n' "$build_id" "$status"
+            case "$status" in
+              SUCCESS)
+                break
+                ;;
+              PENDING|QUEUED|WORKING)
+                sleep 10
+                ;;
+              *)
+                gcloud builds describe "$build_id" \
+                  --region="$GCP_REGION" \
+                  --project="$GCP_PROJECT_ID" \
+                  --format='yaml(status,failureInfo,logUrl)'
+                exit 1
+                ;;
+            esac
+          done
 
       - name: Update the existing Cloud Run service image
         env:
