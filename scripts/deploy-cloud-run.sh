@@ -64,6 +64,7 @@ bucket="${CODEX_WEB_BUCKET:-${project_id}-codex-web-data}"
 run_service_account_name="${CODEX_WEB_SERVICE_ACCOUNT:-codex-web-run}"
 run_service_account="${run_service_account_name}@${project_id}.iam.gserviceaccount.com"
 concurrency="${CODEX_WEB_CONCURRENCY:-80}"
+interactive_gcloud_account="${CODEX_WEB_GCLOUD_ACCOUNT:-}"
 ssh_source_dir="${CODEX_SSH_SOURCE_DIR:-${HOME}/.config/codex-web/ssh}"
 local_container="${CODEX_WEB_LOCAL_CONTAINER:-codex-web}"
 local_volume="${CODEX_WEB_LOCAL_VOLUME:-codex-web-data}"
@@ -76,6 +77,8 @@ image="${region}-docker.pkg.dev/${project_id}/${repository}/${service}:${revisio
 [[ -f "$ssh_source_dir/known_hosts" ]] || die "missing SSH known_hosts: $ssh_source_dir/known_hosts"
 [[ "$concurrency" =~ ^[1-9][0-9]*$ ]] ||
   die "CODEX_WEB_CONCURRENCY must be a positive integer"
+[[ "$interactive_gcloud_account" != *,* ]] ||
+  die "CODEX_WEB_GCLOUD_ACCOUNT cannot contain a comma"
 
 tmp_dir="$(mktemp -d)"
 temporary_container=""
@@ -233,6 +236,10 @@ if ! gcloud run deploy --help 2>/dev/null | grep -q 'mount-options'; then
 fi
 
 startup_command='set -euo pipefail; install -d -m 700 /tmp/codex-ssh /tmp/codex-home /tmp/codex-web; cp /run/secrets/ssh-bundle/ssh.tar /tmp/codex-ssh.tar; tar -xf /tmp/codex-ssh.tar -C /tmp/codex-ssh; install -m 600 /run/secrets/codex-auth/auth.json /tmp/codex-home/auth.json; export CODEX_HOME=/tmp/codex-home; export CODEX_WEB_DATA_DIR=/tmp/codex-web; export CODEX_SSH_SOURCE_DIR=/tmp/codex-ssh; exec /usr/bin/tini -- /usr/local/bin/codex-web-entrypoint'
+runtime_env_vars='CODEX_HOME=/tmp/codex-home,CODEX_WEB_DATA_DIR=/tmp/codex-web,CODEX_WEB_OAUTH_CALLBACK_BRIDGE=0,CODEX_WEB_STATE_BACKUP_FILE=/data/codex-web-state.tar'
+if [[ -n "$interactive_gcloud_account" ]]; then
+  runtime_env_vars+=",CLOUDSDK_CORE_ACCOUNT=${interactive_gcloud_account}"
+fi
 
 "${run_command[@]}" deploy "$service" \
   --project="$project_id" \
@@ -250,7 +257,7 @@ startup_command='set -euo pipefail; install -d -m 700 /tmp/codex-ssh /tmp/codex-
   --no-cpu-throttling \
   --no-allow-unauthenticated \
   --iap \
-  --set-env-vars=CODEX_HOME=/tmp/codex-home,CODEX_WEB_DATA_DIR=/tmp/codex-web,CODEX_WEB_OAUTH_CALLBACK_BRIDGE=0,CODEX_WEB_STATE_BACKUP_FILE=/data/codex-web-state.tar \
+  --set-env-vars="$runtime_env_vars" \
   --set-secrets="/run/secrets/ssh-bundle/ssh.tar=codex-web-ssh-bundle:latest,/run/secrets/codex-auth/auth.json=codex-web-auth:latest" \
   --add-volume="name=codex-data,type=cloud-storage,bucket=${bucket},mount-options=uid=10001;gid=10001;dir-mode=700;file-mode=600;implicit-dirs=true" \
   --add-volume-mount=volume=codex-data,mount-path=/data \

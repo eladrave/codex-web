@@ -30,3 +30,19 @@ test "$(file_mode "$test_root/home/.ssh/config")" = "600"
 test "$(file_mode "$test_root/home/.ssh/id_ed25519")" = "600"
 test -d "$test_root/data/codex"
 test -d "$test_root/data/session"
+test "$(file_mode "$test_root/data/codex/cli")" = "700"
+test "$(file_mode "$test_root/data/codex/cli/gh")" = "700"
+test "$(file_mode "$test_root/data/codex/cli/gcloud")" = "700"
+
+GH_CONFIG_DIR="$test_root/custom/gh" \
+CLOUDSDK_CONFIG="$test_root/custom/gcloud" \
+GIT_CONFIG_GLOBAL="$test_root/custom/git/config" \
+HOME="$test_root/custom-home" \
+CODEX_SSH_SOURCE_DIR="$test_root/missing-secrets" \
+CODEX_WEB_DATA_DIR="$test_root/custom-data" \
+CODEX_WEB_PREPARE_ONLY=1 \
+  bash docker/entrypoint.sh
+
+test "$(file_mode "$test_root/custom/gh")" = "700"
+test "$(file_mode "$test_root/custom/gcloud")" = "700"
+test "$(file_mode "$test_root/custom/git")" = "700"

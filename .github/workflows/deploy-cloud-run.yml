@@ -81,15 +81,23 @@ jobs:
 
       - name: Update the existing Cloud Run service image
         env:
+          CODEX_WEB_GCLOUD_ACCOUNT: ${{ vars.CODEX_WEB_GCLOUD_ACCOUNT }}
           GCP_CLOUD_RUN_SERVICE: ${{ vars.GCP_CLOUD_RUN_SERVICE }}
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GCP_REGION: ${{ vars.GCP_REGION }}
         run: |
-          gcloud run services update "$GCP_CLOUD_RUN_SERVICE" \
-            --image="$IMAGE" \
-            --region="$GCP_REGION" \
-            --project="$GCP_PROJECT_ID" \
+          update_args=(
+            --image="$IMAGE"
+            --region="$GCP_REGION"
+            --project="$GCP_PROJECT_ID"
             --quiet
+          )
+          if [[ -n "$CODEX_WEB_GCLOUD_ACCOUNT" ]]; then
+            update_args+=(
+              --update-env-vars="CLOUDSDK_CORE_ACCOUNT=${CODEX_WEB_GCLOUD_ACCOUNT}"
+            )
+          fi
+          gcloud run services update "$GCP_CLOUD_RUN_SERVICE" "${update_args[@]}"
 
       - name: Report the production revision
         id: release

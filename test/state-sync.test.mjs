@@ -29,6 +29,18 @@ test("snapshots and restores Electron and Codex settings safely", async () => {
       path.join(codexHome, "config.toml"),
       'model = "gpt-5.6"\n',
     );
+    await fs.mkdir(path.join(codexHome, "cli", "gh"), { recursive: true });
+    await fs.mkdir(path.join(codexHome, "cli", "gcloud"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(codexHome, "cli", "gh", "hosts.yml"),
+      "github.com:\n  user: eladrave\n",
+    );
+    await fs.writeFile(
+      path.join(codexHome, "cli", "gitconfig"),
+      "[credential]\n\thelper = gh auth git-credential\n",
+    );
     await fs.writeFile(path.join(codexHome, "auth.json"), '{"secret":true}\n');
 
     const databasePath = path.join(electronDataDir, "app-state.sqlite");
@@ -39,8 +51,22 @@ test("snapshots and restores Electron and Codex settings safely", async () => {
     database
       .prepare("INSERT INTO settings (name, value) VALUES (?, ?)")
       .run("customInstructions", "Use concise answers");
+    const gcloudCredentialsPath = path.join(
+      codexHome,
+      "cli",
+      "gcloud",
+      "credentials.db",
+    );
+    const gcloudCredentials = new Database(gcloudCredentialsPath);
+    gcloudCredentials.exec(
+      "CREATE TABLE credentials (account TEXT PRIMARY KEY, token TEXT NOT NULL)",
+    );
+    gcloudCredentials
+      .prepare("INSERT INTO credentials (account, token) VALUES (?, ?)")
+      .run("eladrave@gmail.com", "refresh-token-placeholder");
     await createStateSnapshot({ backupFile, codexHome, electronDataDir });
     database.close();
+    gcloudCredentials.close();
 
     await fs.rm(electronDataDir, { force: true, recursive: true });
     await fs.rm(codexHome, { force: true, recursive: true });
@@ -56,6 +82,14 @@ test("snapshots and restores Electron and Codex settings safely", async () => {
     assert.equal(
       await fs.readFile(path.join(codexHome, "config.toml"), "utf8"),
       'model = "gpt-5.6"\n',
+    );
+    assert.equal(
+      await fs.readFile(path.join(codexHome, "cli", "gh", "hosts.yml"), "utf8"),
+      "github.com:\n  user: eladrave\n",
+    );
+    assert.equal(
+      await fs.readFile(path.join(codexHome, "cli", "gitconfig"), "utf8"),
+      "[credential]\n\thelper = gh auth git-credential\n",
     );
     await assert.rejects(
       fs.access(path.join(codexHome, "auth.json")),
@@ -74,6 +108,19 @@ test("snapshots and restores Electron and Codex settings safely", async () => {
       "Use concise answers",
     );
     restoredDatabase.close();
+
+    const restoredGcloudCredentials = new Database(gcloudCredentialsPath, {
+      fileMustExist: true,
+      readonly: true,
+    });
+    assert.equal(
+      restoredGcloudCredentials
+        .prepare("SELECT token FROM credentials WHERE account = ?")
+        .pluck()
+        .get("eladrave@gmail.com"),
+      "refresh-token-placeholder",
+    );
+    restoredGcloudCredentials.close();
   } finally {
     await fs.rm(root, { force: true, recursive: true });
   }

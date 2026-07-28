@@ -201,6 +201,19 @@ durable Codex settings. A crash can lose changes made since the most recent
 15-second snapshot, but it cannot expose a live SQLite database to Cloud
 Storage FUSE.
 
+The entrypoint also places CLI configuration under the effective Codex home:
+
+- `GH_CONFIG_DIR=$CODEX_HOME/cli/gh`
+- `CLOUDSDK_CONFIG=$CODEX_HOME/cli/gcloud`
+- `GIT_CONFIG_GLOBAL=$CODEX_HOME/cli/gitconfig`
+
+Consequently, `gh auth login`, `gcloud auth login`, gcloud configurations, and
+global Git preferences are included in the same rolling snapshots. Locally,
+mounting `/data` provides the same durability. On Cloud Run, wait at least 15
+seconds after changing credentials before deliberately replacing the instance.
+The container uses a restrictive `umask` and keeps these directories private
+to the non-root runtime user.
+
 ## Override deployment settings
 
 Set environment variables before invoking the helper:
@@ -223,6 +236,7 @@ Supported overrides include:
 | `CODEX_WEB_BUCKET`          | Existing or new Cloud Storage bucket        |
 | `CODEX_WEB_SERVICE_ACCOUNT` | Runtime service-account name                |
 | `CODEX_WEB_CONCURRENCY`     | Requests accepted by the single instance    |
+| `CODEX_WEB_GCLOUD_ACCOUNT`  | Expected interactive gcloud user account    |
 | `CODEX_SSH_SOURCE_DIR`      | Local SSH configuration directory           |
 | `CODEX_AUTH_FILE`           | Explicit local Codex `auth.json`            |
 | `CODEX_WEB_IMAGE_TAG`       | Container image tag                         |
@@ -370,8 +384,44 @@ another permanent utility to the Dockerfile and merge it into `main`; this
 workflow rebuilds and deploys it. Do not put package-manager directories on the
 GCS mount.
 
-`gcloud` uses the Cloud Run runtime service account through Application Default
-Credentials. The installed CLI does not expand that account's IAM roles.
+### Persistent GitHub and Google Cloud CLI login
+
+After the first deployment of an image with persistent CLI state, open the app
+terminal and authenticate once:
+
+```bash
+gh auth login --web --git-protocol ssh
+
+gcloud auth login eladrave@gmail.com --no-launch-browser
+gcloud config set account eladrave@gmail.com
+gcloud config set project aztm-amesh
+```
+
+Verify the saved identities:
+
+```bash
+gh auth status
+gcloud auth list --filter=status:ACTIVE --format='value(account)'
+```
+
+For this personal deployment, set `CODEX_WEB_GCLOUD_ACCOUNT` when running the
+deployment helper:
+
+```bash
+CODEX_WEB_GCLOUD_ACCOUNT=eladrave@gmail.com \
+./scripts/deploy-cloud-run.sh
+```
+
+This sets `CLOUDSDK_CORE_ACCOUNT` on the service so interactive `gcloud`
+commands are pinned to that account. The IAP browser session establishes the
+user's identity for access to the web application, but it does not delegate a
+Google API access token into the container; the one-time `gcloud auth login`
+flow is therefore still required.
+
+Do not run `gcloud auth application-default login` in Cloud Run. Application
+code, the GCS mount, and background state sync must continue to use the
+`codex-web-run` service identity through Application Default Credentials.
+Persisted user credentials are only for commands run with the `gcloud` CLI.
 
 The workflow can be rerun from **Actions > Deploy Cloud Run > Run workflow**.
 Because manual runs use `main`, they redeploy the current committed production
@@ -387,6 +437,7 @@ The workflows expect these GitHub repository variables:
 | `GCP_REGION`                     | `us-central1`                           |
 | `GCP_CLOUD_RUN_SERVICE`          | `codex-web`                             |
 | `GCP_ARTIFACT_REPOSITORY`        | `codex-web`                             |
+| `CODEX_WEB_GCLOUD_ACCOUNT`       | Interactive gcloud user email           |
 | `GCP_DEPLOY_SERVICE_ACCOUNT`     | GitHub deployment service-account email |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full Workload Identity provider name    |
 

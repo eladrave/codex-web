@@ -24,6 +24,9 @@ directly on a public network port.
 - The production image is built from `Dockerfile`.
 - The server listens on port `8080`.
 - `/data` contains persistent Electron and connection state.
+- The entrypoint keeps GitHub CLI, gcloud CLI, and global Git configuration
+  under the effective `CODEX_HOME` so the normal state snapshot preserves
+  interactive logins and preferences across instance replacement.
 - Runtime developer tools are baked into the image. Do not depend on
   interactive `apt`, npm-global, or system pip changes surviving a restart.
 - SSH configuration and key material are mounted read-only at
