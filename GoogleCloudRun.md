@@ -348,7 +348,8 @@ Review the generated PR, including its linked Cloud Build run, and merge it into
 which:
 
 1. authenticates to Google Cloud with short-lived GitHub OIDC credentials;
-2. builds the merged commit with `cloudbuild.yaml`;
+2. asks Cloud Build to clone and build the exact merged commit with
+   `cloudbuild.github.yaml`;
 3. pushes the commit-tagged image to Artifact Registry;
 4. updates the existing Cloud Run service to that image; and
 5. reports the ready revision and production URL in the workflow summary.
@@ -391,6 +392,9 @@ The workflows expect these GitHub repository variables:
 
 No long-lived Google Cloud key is stored in GitHub. The provider accepts tokens
 only from `eladrave/codex-web` workflows running from `refs/heads/main`.
+The repository is public, so Cloud Build can clone the commit without a GitHub
+credential. The GitHub deployment identity never needs access to the Cloud
+Build source-staging bucket.
 
 ### Roll back
 

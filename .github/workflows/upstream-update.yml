@@ -45,6 +45,23 @@ jobs:
           npm ci
           npm test
 
+      - name: Push the candidate version commit
+        if: steps.versions.outputs.changed == 'true'
+        id: candidate
+        env:
+          APP_VERSION: ${{ steps.versions.outputs.app_version }}
+          CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
+        run: |
+          branch="codex/update-openai-releases"
+          title="Update OpenAI Codex app to ${APP_VERSION} and CLI to ${CLI_VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          git add Dockerfile
+          git commit -m "$title"
+          git push --force-with-lease origin "HEAD:${branch}"
+          printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Authenticate to Google Cloud
         if: steps.versions.outputs.changed == 'true'
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
@@ -64,13 +81,15 @@ jobs:
           GCP_ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GCP_REGION: ${{ vars.GCP_REGION }}
+          SOURCE_REVISION: ${{ steps.candidate.outputs.sha }}
         run: |
           image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REPOSITORY}/codex-web:candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           printf 'Building desktop %s with CLI %s as %s\n' \
             "$APP_VERSION" "$CLI_VERSION" "$image"
-          gcloud builds submit . \
-            --config=cloudbuild.yaml \
-            --substitutions="_IMAGE=${image}" \
+          gcloud builds submit \
+            --no-source \
+            --config=cloudbuild.github.yaml \
+            --substitutions="_IMAGE=${image},_SOURCE_REPOSITORY=https://github.com/${GITHUB_REPOSITORY}.git,_SOURCE_REVISION=${SOURCE_REVISION}" \
             --region="$GCP_REGION" \
             --project="$GCP_PROJECT_ID" \
             --quiet
@@ -98,13 +117,6 @@ jobs:
             printf -- '- Compatibility run: %s\n\n' "$run_url"
             printf 'Merging this PR triggers the production Cloud Run deployment workflow.\n'
           } > "$body"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -C "$branch"
-          git add Dockerfile
-          git commit -m "$title"
-          git push --force-with-lease origin "HEAD:${branch}"
 
           pr_number="$(gh pr list \
             --repo "$GITHUB_REPOSITORY" \

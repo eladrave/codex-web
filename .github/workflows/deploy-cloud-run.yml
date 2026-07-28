@@ -43,9 +43,10 @@ jobs:
         run: |
           image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REPOSITORY}/codex-web:${GITHUB_SHA::12}"
           printf 'IMAGE=%s\n' "$image" >> "$GITHUB_ENV"
-          gcloud builds submit . \
-            --config=cloudbuild.yaml \
-            --substitutions="_IMAGE=${image}" \
+          gcloud builds submit \
+            --no-source \
+            --config=cloudbuild.github.yaml \
+            --substitutions="_IMAGE=${image},_SOURCE_REPOSITORY=https://github.com/${GITHUB_REPOSITORY}.git,_SOURCE_REVISION=${GITHUB_SHA}" \
             --region="$GCP_REGION" \
             --project="$GCP_PROJECT_ID" \
             --quiet

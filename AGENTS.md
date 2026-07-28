@@ -76,6 +76,9 @@ The personal fork deploys `main` to the existing `codex-web` Cloud Run service
 through `.github/workflows/deploy-cloud-run.yml`. The workflow must update only
 the service image; it must not replace the existing GCS mount, Secret Manager
 bindings, IAP policy, runtime service account, or scaling configuration.
+GitHub builds use `cloudbuild.github.yaml`, which clones the exact public commit
+inside Cloud Build instead of granting GitHub access to the source-staging
+bucket.
 
 `.github/workflows/upstream-update.yml` checks the official desktop appcast and
 Codex CLI package, validates an updated image in Cloud Build, and opens an

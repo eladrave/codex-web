@@ -1,0 +1,29 @@
+steps:
+  - name: gcr.io/cloud-builders/git
+    args:
+      - clone
+      - --no-checkout
+      - ${_SOURCE_REPOSITORY}
+      - source
+  - name: gcr.io/cloud-builders/git
+    dir: source
+    args:
+      - checkout
+      - --detach
+      - ${_SOURCE_REVISION}
+  - name: gcr.io/cloud-builders/docker
+    dir: source
+    args:
+      - build
+      - --tag
+      - ${_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}
+
+options:
+  machineType: E2_HIGHCPU_8
+  diskSizeGb: 100
+
+timeout: 1800s
