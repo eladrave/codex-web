@@ -41,4 +41,9 @@ patch --batch --forward --strip 1 --directory scratch/asar < patches/webview-pro
 patch --batch --forward --strip 1 --directory scratch/asar < patches/preload-disable-device-check.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/sentry-disable-shell.patch
 patch --batch --forward --strip 1 --directory scratch/asar < patches/sentry-disable-webview.patch
-rm -rf scratch/asar/node_modules/better-sqlite3
+# The downloaded desktop app is the macOS arm64 build, so its bundled native
+# modules cannot load on Linux. Resolve them from the Linux-native copies
+# installed in this package's node_modules directory instead.
+rm -rf \
+  scratch/asar/node_modules/better-sqlite3 \
+  scratch/asar/node_modules/node-pty

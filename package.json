@@ -3,6 +3,8 @@
   "version": "0.0.1",
   "files": [
     "README.md",
+    "scripts/ensure_node_pty_permissions.mjs",
+    "scripts/smoke_test_terminal_pty.mjs",
     "scratch/asar/**/*",
     "src/server/**/*.js",
     "src/server/electron/index.js",
@@ -14,12 +16,14 @@
     "build": "npm run prepare:asar && npm run build:browser && npm run build:server",
     "launch:unpacked:server": "http-server ./scratch/asar/webview -a localhost -p 5175 -c-1",
     "launch:unpacked": "NODE_ENV=development electron ./scratch/asar --remote-debugging-port=9222",
+    "postinstall": "node scripts/ensure_node_pty_permissions.mjs",
     "dev:browser": "vite --config vite.browser.config.ts",
     "build:browser": "vite build --config vite.browser.config.ts",
     "build:server": "cd src/server && tsc",
     "prepare:asar": "./scripts/prepare_asar",
     "preserver": "npm run build:server && npm run build:browser",
-    "server": "CODEX_CLI_PATH=$(which codex) node src/server/main.js"
+    "server": "CODEX_CLI_PATH=$(which codex) node src/server/main.js",
+    "test:pty": "node scripts/smoke_test_terminal_pty.mjs"
   },
   "repository": "git@github.com:0xcaff/codex-web.git",
   "author": "martin <martincharles07@gmail.com>",
@@ -33,6 +37,7 @@
     "better-sqlite3": "^12.9.0",
     "fastify": "^5.8.5",
     "glob": "^13.0.6",
+    "node-pty": "^1.1.0",
     "prettier": "^3.8.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
