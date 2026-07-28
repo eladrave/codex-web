@@ -65,6 +65,10 @@ the image contains:
 - the patched codex desktop browser client
 - the `codex-web` node bridge
 - the codex cli
+- the Google Cloud and GitHub CLIs
+- Git, Git LFS, Python 3, pip, virtual environments, and native build tools
+- common coding and diagnostics tools such as `jq`, `ripgrep`, `fd`, `rsync`,
+  `sqlite3`, archive tools, process tools, and network tools
 - the OpenSSH client used by codex desktop's remote connection manager
 - a non-root `codex` runtime user
 - health endpoints at `/__backend/healthz` and `/__backend/readyz`
@@ -217,6 +221,32 @@ options.
 set `CODEX_WEB_BUILD_MODE=local` to use local Docker Buildx instead of the
 default Google Cloud Build path. use `CODEX_WEB_BUILD_MODE=skip` only when the
 tagged image already exists and only the Cloud Run configuration has changed.
+
+### automated OpenAI updates and Cloud Run deployments
+
+This fork checks OpenAI's desktop appcast and the published `@openai/codex`
+package every Monday. When either pinned version changes, GitHub Actions runs
+the unit tests and a full Google Cloud Build, then opens a release PR assigned
+to the repository owner. Merging that PR into `main` builds a commit-tagged
+production image and updates only the existing Cloud Run service image.
+
+The production workflow deliberately leaves the service's GCS volume,
+environment, IAP policy, Secret Manager mounts, scaling, and runtime service
+account unchanged. See [GoogleCloudRun.md](GoogleCloudRun.md#github-automation)
+for notification, authentication, deployment, and rollback details.
+
+### adding permanent command-line utilities
+
+The Cloud Run filesystem is replaced with each revision, and the application
+runs as a non-root user. Installing an OS package interactively is therefore
+neither durable nor the supported customization path. Add required packages to
+the runtime stage in `Dockerfile`, test the image, and merge the change into
+`main`; the deployment workflow then rebuilds and deploys the tool permanently.
+
+The included `gcloud` CLI automatically sees the Cloud Run runtime service
+account through Application Default Credentials. That identity has only the IAM
+roles granted to `codex-web-run`; installing `gcloud` does not grant additional
+Google Cloud permissions.
 
 ### local multi-host integration test
 

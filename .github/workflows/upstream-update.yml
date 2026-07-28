@@ -1,0 +1,174 @@
+name: Check OpenAI releases
+
+on:
+  schedule:
+    - cron: "17 13 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: openai-release-check
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  check:
+    if: github.repository == 'eladrave/codex-web'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Detect new OpenAI releases
+        id: versions
+        run: |
+          python3 scripts/update_upstream_versions.py \
+            --write \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Run repository tests
+        if: steps.versions.outputs.changed == 'true'
+        run: |
+          npm ci
+          npm test
+
+      - name: Authenticate to Google Cloud
+        if: steps.versions.outputs.changed == 'true'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        if: steps.versions.outputs.changed == 'true'
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Build compatibility candidate
+        if: steps.versions.outputs.changed == 'true'
+        env:
+          APP_VERSION: ${{ steps.versions.outputs.app_version }}
+          CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
+          GCP_ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+        run: |
+          image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REPOSITORY}/codex-web:candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          printf 'Building desktop %s with CLI %s as %s\n' \
+            "$APP_VERSION" "$CLI_VERSION" "$image"
+          gcloud builds submit . \
+            --config=cloudbuild.yaml \
+            --substitutions="_IMAGE=${image}" \
+            --region="$GCP_REGION" \
+            --project="$GCP_PROJECT_ID" \
+            --quiet
+
+      - name: Open or update the release PR
+        if: steps.versions.outputs.changed == 'true'
+        env:
+          APP_VERSION: ${{ steps.versions.outputs.app_version }}
+          CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="codex/update-openai-releases"
+          title="Update OpenAI Codex app to ${APP_VERSION} and CLI to ${CLI_VERSION}"
+          body="$RUNNER_TEMP/upstream-update-pr.md"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          {
+            printf '## Summary\n\n'
+            printf -- '- Update the pinned OpenAI Codex desktop bundle to `%s`.\n' "$APP_VERSION"
+            printf -- '- Update the pinned `@openai/codex` CLI to `%s`.\n' "$CLI_VERSION"
+            printf -- '- Keep the hosted patches and Cloud Run configuration unchanged.\n\n'
+            printf '## Validation\n\n'
+            printf -- '- `npm test`\n'
+            printf -- '- Full production Docker build in Google Cloud Build\n'
+            printf -- '- Compatibility run: %s\n\n' "$run_url"
+            printf 'Merging this PR triggers the production Cloud Run deployment workflow.\n'
+          } > "$body"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          git add Dockerfile
+          git commit -m "$title"
+          git push --force-with-lease origin "HEAD:${branch}"
+
+          pr_number="$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --head "$branch" \
+            --json number \
+            --jq '.[0].number // empty')"
+          if [[ -n "$pr_number" ]]; then
+            gh pr edit "$pr_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --body-file "$body" \
+              --add-assignee "$GITHUB_REPOSITORY_OWNER"
+          else
+            gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
+              --base main \
+              --head "$branch" \
+              --title "$title" \
+              --body-file "$body" \
+              --assignee "$GITHUB_REPOSITORY_OWNER"
+          fi
+
+      - name: Close a resolved updater failure
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="OpenAI Codex update needs attention"
+          issue_number="$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --search "\"${title}\" in:title" \
+            --json number,title \
+            --jq ".[] | select(.title == \"${title}\") | .number" \
+            | head -n 1)"
+          if [[ -n "$issue_number" ]]; then
+            gh issue close "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --comment "The scheduled updater is healthy again."
+          fi
+
+      - name: Notify about an updater failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="OpenAI Codex update needs attention"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          issue_number="$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --search "\"${title}\" in:title" \
+            --json number,title \
+            --jq ".[] | select(.title == \"${title}\") | .number" \
+            | head -n 1)"
+          if [[ -n "$issue_number" ]]; then
+            gh issue comment "$issue_number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body "The updater failed again: ${run_url}"
+          else
+            gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$title" \
+              --body "A release was detected or the release check failed, but validation did not complete. Review the workflow run: ${run_url}" \
+              --assignee "$GITHUB_REPOSITORY_OWNER"
+          fi

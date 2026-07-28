@@ -43,13 +43,66 @@ RUN curl --fail --location --retry 3 --retry-delay 2 \
 FROM ${NODE_IMAGE} AS runtime
 
 ARG CODEX_VERSION=0.145.0
+ARG GCLOUD_VERSION=578.0.0-0
+ARG GH_VERSION=2.96.0
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
+    gnupg \
+  && install -d -m 755 /etc/apt/keyrings \
+  && curl --fail --silent --show-error --location \
+    https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+    | gpg --dearmor -o /etc/apt/keyrings/cloud.google.gpg \
+  && curl --fail --silent --show-error --location \
+    --output /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+  && chmod a+r \
+    /etc/apt/keyrings/cloud.google.gpg \
+    /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+  && printf '%s\n' \
+    'deb [signed-by=/etc/apt/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main' \
+    > /etc/apt/sources.list.d/google-cloud-sdk.list \
+  && printf '%s\n' \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    > /etc/apt/sources.list.d/github-cli.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+    build-essential \
+    fd-find \
+    file \
+    gh="${GH_VERSION}" \
+    git \
+    git-lfs \
+    google-cloud-cli="${GCLOUD_VERSION}" \
+    iproute2 \
+    iputils-ping \
+    jq \
+    less \
+    lsof \
+    nano \
+    netcat-openbsd \
     openssh-client \
+    pkg-config \
+    procps \
+    psmisc \
+    python-is-python3 \
+    python3 \
+    python3-dev \
+    python3-pip \
+    python3-venv \
+    ripgrep \
+    rsync \
+    sqlite3 \
     tini \
+    tree \
+    unzip \
+    xz-utils \
+    zip \
   && npm install --global "@openai/codex@${CODEX_VERSION}" \
+  && ln -s /usr/bin/fdfind /usr/local/bin/fd \
+  && git lfs install --system --skip-repo \
   && useradd --create-home --shell /bin/bash --uid 10001 codex \
   && install -d -o codex -g codex -m 700 \
     /data \

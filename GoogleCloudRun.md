@@ -161,19 +161,19 @@ At completion, it prints the Cloud Run URL and bucket name.
 
 The default configuration is:
 
-| Setting | Default |
-| --- | --- |
-| Region | `us-central1` |
-| Service | `codex-web` |
-| Artifact Registry repository | `codex-web` |
-| Data bucket | `<project-id>-codex-web-data` |
-| Runtime service account | `codex-web-run` |
-| Minimum instances | `1` |
-| Maximum instances | `1` |
-| Concurrency | `80` |
-| Memory | `2Gi` |
-| CPU | `1` |
-| Request timeout | `3600` seconds |
+| Setting                      | Default                       |
+| ---------------------------- | ----------------------------- |
+| Region                       | `us-central1`                 |
+| Service                      | `codex-web`                   |
+| Artifact Registry repository | `codex-web`                   |
+| Data bucket                  | `<project-id>-codex-web-data` |
+| Runtime service account      | `codex-web-run`               |
+| Minimum instances            | `1`                           |
+| Maximum instances            | `1`                           |
+| Concurrency                  | `80`                          |
+| Memory                       | `2Gi`                         |
+| CPU                          | `1`                           |
+| Request timeout              | `3600` seconds                |
 
 The instance uses instance-based CPU allocation so Codex and SSH subprocesses
 can continue running while the browser is idle. A minimum of one instance means
@@ -214,19 +214,19 @@ CODEX_WEB_SERVICE=my-codex-web \
 
 Supported overrides include:
 
-| Variable | Purpose |
-| --- | --- |
-| `GCP_PROJECT_ID` | Skip the project prompt |
-| `GCP_REGION` | Cloud Run and Artifact Registry region |
-| `CODEX_WEB_SERVICE` | Cloud Run service name |
-| `CODEX_WEB_REPOSITORY` | Artifact Registry repository |
-| `CODEX_WEB_BUCKET` | Existing or new Cloud Storage bucket |
-| `CODEX_WEB_SERVICE_ACCOUNT` | Runtime service-account name |
-| `CODEX_WEB_CONCURRENCY` | Requests accepted by the single instance |
-| `CODEX_SSH_SOURCE_DIR` | Local SSH configuration directory |
-| `CODEX_AUTH_FILE` | Explicit local Codex `auth.json` |
-| `CODEX_WEB_IMAGE_TAG` | Container image tag |
-| `CODEX_WEB_BUILD_MODE` | `cloud-build` (default), `local`, or `skip` |
+| Variable                    | Purpose                                     |
+| --------------------------- | ------------------------------------------- |
+| `GCP_PROJECT_ID`            | Skip the project prompt                     |
+| `GCP_REGION`                | Cloud Run and Artifact Registry region      |
+| `CODEX_WEB_SERVICE`         | Cloud Run service name                      |
+| `CODEX_WEB_REPOSITORY`      | Artifact Registry repository                |
+| `CODEX_WEB_BUCKET`          | Existing or new Cloud Storage bucket        |
+| `CODEX_WEB_SERVICE_ACCOUNT` | Runtime service-account name                |
+| `CODEX_WEB_CONCURRENCY`     | Requests accepted by the single instance    |
+| `CODEX_SSH_SOURCE_DIR`      | Local SSH configuration directory           |
+| `CODEX_AUTH_FILE`           | Explicit local Codex `auth.json`            |
+| `CODEX_WEB_IMAGE_TAG`       | Container image tag                         |
+| `CODEX_WEB_BUILD_MODE`      | `cloud-build` (default), `local`, or `skip` |
 
 Cloud Build uses the checked-in `cloudbuild.yaml` configuration with an
 `E2_HIGHCPU_8` builder and a 30-minute timeout. This avoids slow x86 emulation
@@ -316,6 +316,94 @@ Choose the new alias.
 
 Use a concrete `Host` alias for every machine. Entries such as `Host *` are not
 displayed in the Codex connection picker.
+
+## GitHub automation
+
+The fork includes two workflows:
+
+- **Check OpenAI releases** runs every Monday at 13:17 UTC and can also be
+  started manually from **Actions**. It checks the official Codex desktop
+  appcast and the latest `@openai/codex` npm package. When a version changes, it
+  updates the Dockerfile, runs `npm test`, completes a full production build in
+  Google Cloud Build, and opens a PR assigned to the repository owner.
+- **Deploy Cloud Run** runs after every push to `main`, including a merged
+  updater PR. It builds an image tagged with the merge commit and changes only
+  the image on the existing `codex-web` service.
+
+### Notifications
+
+A successful update check opens a GitHub PR assigned to the repository owner.
+That appears in GitHub's notification inbox and is also sent by email when
+assigned-item email notifications are enabled in the owner's GitHub settings.
+
+If detection, tests, or the compatibility build fails, the workflow opens or
+updates an assigned issue named **OpenAI Codex update needs attention**, with a
+link to the failed run. GitHub's normal failed-workflow notification may also
+be sent, according to the account's Actions notification preferences.
+
+### Deploy an update
+
+Review the generated PR, including its linked Cloud Build run, and merge it into
+`main`. No local command is required. The merge starts **Deploy Cloud Run**,
+which:
+
+1. authenticates to Google Cloud with short-lived GitHub OIDC credentials;
+2. builds the merged commit with `cloudbuild.yaml`;
+3. pushes the commit-tagged image to Artifact Registry;
+4. updates the existing Cloud Run service to that image; and
+5. reports the ready revision and production URL in the workflow summary.
+
+The deployment does not recreate the service. GCS state snapshots, SSH and
+OpenAI secrets, IAP access, scaling, CPU allocation, and volume mounts survive
+the image update.
+
+The runtime image includes Node.js, npm, Codex CLI, `gcloud`, `gh`, Git, Git
+LFS, Python 3 with pip and virtual environments, native build tools, `jq`,
+`ripgrep`, `fd`, `rsync`, SQLite and archive/process/network diagnostics.
+These binaries are part of the immutable image and therefore remain available
+after Cloud Run replaces an instance.
+
+Installing an OS package from the app terminal is not durable and normally is
+not possible because the container runs as the non-root `codex` user. Add
+another permanent utility to the Dockerfile and merge it into `main`; this
+workflow rebuilds and deploys it. Do not put package-manager directories on the
+GCS mount.
+
+`gcloud` uses the Cloud Run runtime service account through Application Default
+Credentials. The installed CLI does not expand that account's IAM roles.
+
+The workflow can be rerun from **Actions > Deploy Cloud Run > Run workflow**.
+Because manual runs use `main`, they redeploy the current committed production
+version.
+
+### GitHub-to-GCP authentication
+
+The workflows expect these GitHub repository variables:
+
+| Variable                         | Value for this deployment               |
+| -------------------------------- | --------------------------------------- |
+| `GCP_PROJECT_ID`                 | `aztm-amesh`                            |
+| `GCP_REGION`                     | `us-central1`                           |
+| `GCP_CLOUD_RUN_SERVICE`          | `codex-web`                             |
+| `GCP_ARTIFACT_REPOSITORY`        | `codex-web`                             |
+| `GCP_DEPLOY_SERVICE_ACCOUNT`     | GitHub deployment service-account email |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full Workload Identity provider name    |
+
+No long-lived Google Cloud key is stored in GitHub. The provider accepts tokens
+only from `eladrave/codex-web` workflows running from `refs/heads/main`.
+
+### Roll back
+
+Cloud Run retains previous revisions. To restore an earlier image, open the
+failed deployment in Google Cloud Console and route traffic back to the last
+known-good revision, or run:
+
+```bash
+gcloud run services update-traffic codex-web \
+  --project aztm-amesh \
+  --region us-central1 \
+  --to-revisions PREVIOUS_REVISION=100
+```
 
 ## Deploy an update
 

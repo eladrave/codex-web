@@ -24,6 +24,8 @@ directly on a public network port.
 - The production image is built from `Dockerfile`.
 - The server listens on port `8080`.
 - `/data` contains persistent Electron and connection state.
+- Runtime developer tools are baked into the image. Do not depend on
+  interactive `apt`, npm-global, or system pip changes surviving a restart.
 - SSH configuration and key material are mounted read-only at
   `/run/secrets/codex-ssh`.
 - The entrypoint copies readable secret files to the runtime user's
@@ -68,13 +70,14 @@ docker run --rm \
 
 Then open <http://127.0.0.1:8080>.
 
-## Current handoff
+## Deployment automation
 
-The image has been built and tested locally as `codex-web:local`. Unit tests,
-entrypoint tests, HTTP health checks, the rendered Codex page, non-root runtime,
-and the disposable two-host Codex daemon integration test passed. The final
-runtime dependency audit reported zero vulnerabilities.
+The personal fork deploys `main` to the existing `codex-web` Cloud Run service
+through `.github/workflows/deploy-cloud-run.yml`. The workflow must update only
+the service image; it must not replace the existing GCS mount, Secret Manager
+bindings, IAP policy, runtime service account, or scaling configuration.
 
-No GCP image upload or deployment has been performed yet. On another machine,
-rebuild and rerun the required validation above before preparing the GCP
-deployment.
+`.github/workflows/upstream-update.yml` checks the official desktop appcast and
+Codex CLI package, validates an updated image in Cloud Build, and opens an
+assigned PR. Keep upstream version changes isolated in those generated PRs so
+patch compatibility and deployment failures remain easy to diagnose.

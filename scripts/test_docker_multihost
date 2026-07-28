@@ -81,6 +81,31 @@ container_home="$(
 )"
 test "$container_home" = "/home/codex"
 
+for command_name in \
+  codex \
+  fd \
+  g++ \
+  gcc \
+  gcloud \
+  gh \
+  git \
+  jq \
+  make \
+  node \
+  npm \
+  python \
+  python3 \
+  rg \
+  unzip \
+  zip; do
+  CODEX_WEB_TEST_SSH_DIR="$test_root" \
+  CODEX_WEB_TEST_PORT="$test_port" \
+    docker compose \
+      --project-name "$compose_project" \
+      --file "$repo_root/compose.test.yaml" \
+      exec -T web sh -c 'command -v "$1"' sh "$command_name" >/dev/null
+done
+
 CODEX_WEB_TEST_SSH_DIR="$test_root" \
 CODEX_WEB_TEST_PORT="$test_port" \
   docker compose \
