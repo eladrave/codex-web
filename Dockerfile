@@ -4,7 +4,7 @@ ARG NODE_IMAGE=node:22-bookworm-slim
 
 FROM ${NODE_IMAGE} AS builder
 
-ARG CODEX_APP_VERSION=26.721.30844
+ARG CODEX_APP_VERSION=26.727.51351
 ENV NODE_ENV=production
 
 RUN apt-get update \
@@ -43,7 +43,7 @@ RUN curl --fail --location --retry 3 --retry-delay 2 \
 
 FROM ${NODE_IMAGE} AS runtime
 
-ARG CODEX_VERSION=0.145.0
+ARG CODEX_VERSION=0.146.0
 ARG GCLOUD_VERSION=578.0.0-0
 ARG GH_VERSION=2.97.0
 
